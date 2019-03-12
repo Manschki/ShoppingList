@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item
+        android:id="@+id/menu_new_article"
+        android:title="Neuen Artikel hinzufügen"
+        app:showAsAction="never"
+        />
+    <item
+        android:id="@+id/menu_new_shop"
+        android:title="Neues Geschaeft hinzufügen"
+        app:showAsAction="never"
+        />
+    <item
+        android:id="@+id/menu_save"
+        android:title="Speichern"
+        app:showAsAction="never"
+        />
+</menu>
