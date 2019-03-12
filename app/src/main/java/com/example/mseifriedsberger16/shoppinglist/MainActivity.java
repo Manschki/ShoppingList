@@ -3,13 +3,18 @@ package com.example.mseifriedsberger16.shoppinglist;
 import android.Manifest;
 import android.content.pm.PackageManager;
 import android.os.Environment;
+import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.View;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
+import android.widget.EditText;
 import android.widget.ListView;
+import android.widget.NumberPicker;
 import android.widget.Spinner;
 
 import com.google.gson.Gson;
@@ -23,10 +28,12 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Spliterator;
 
 public class MainActivity extends AppCompatActivity {
     private static final String FILENAME = "shoppingList.json";
@@ -34,12 +41,16 @@ public class MainActivity extends AppCompatActivity {
     private int RQ_read = 1;
     private int RQ_write = 2;
     private ListView listView;
-    private TypeToken<Map<String, List<Article>>> token = new TypeToken<Map<String, List<Article>>>(){};
+    private TypeToken<Map<String, List<Article>>> token = new TypeToken<Map<String, List<Article>>>() {
+    };
 
     private Map<String, List<Article>> shoppingList = new HashMap<>();
 
-    private ArrayAdapter spinnerAdapter;
-    private ArrayAdapter listAdapter;
+    private ArrayAdapter<String> spinnerAdapter;
+    private ArrayAdapter<Article> listAdapter;
+    private AlertDialog ad_add_Article;
+    private AlertDialog ad_add_Shop;
+    private View vDialog;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -49,17 +60,41 @@ public class MainActivity extends AppCompatActivity {
         spinner = findViewById(R.id.spinner);
         listView = findViewById(R.id.listView);
 
+        spinnerAdapter  = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item);
+        listAdapter =  new ArrayAdapter<>(this, android.R.layout.simple_list_item_1);
+
         if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
                 != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, RQ_read);
         } else {
             readJSON();
         }
+
+        bindAdapterToListView();
+        initSpinner();
+
+        spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                String shop = spinner.getSelectedItem().toString();
+                listAdapter.clear();
+                listAdapter.addAll(shoppingList.get(shop));
+            }
+
+            @Override
+            public void onNothingSelected(AdapterView<?> adapterView) {
+            }
+        });
     }
 
-    private void bindAdapterToListView(){
-        listAdapter = new ArrayAdapter(this, android.R.layout.simple_list_item_1);
+    private void initSpinner() {
+        spinner.setAdapter(spinnerAdapter);
+    }
 
+
+    private void bindAdapterToListView() {
+        listView.setAdapter(listAdapter);
     }
 
     private void readJSON() {
@@ -94,8 +129,7 @@ public class MainActivity extends AppCompatActivity {
             } else {
                 readJSON();
             }
-        }
-        else if(requestCode == RQ_write){
+        } else if (requestCode == RQ_write) {
             if (grantResults.length > 0 && grantResults[0] != PackageManager.PERMISSION_GRANTED) {
                 //user does not allow
             } else {
@@ -115,22 +149,54 @@ public class MainActivity extends AppCompatActivity {
         int id = item.getItemId();
         switch (id) {
             case R.id.menu_new_article:
-
+                createArticle();
                 break;
             case R.id.menu_new_shop:
-
+                createShop();
                 break;
 
             case R.id.menu_save:
                 if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                        !=PackageManager.PERMISSION_GRANTED) {
-                    requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE},RQ_write);
+                        != PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, RQ_write);
                 } else {
-                   writeJSON();
+                    writeJSON();
                 }
                 break;
         }
         return super.onOptionsItemSelected(item);
+    }
+
+    private void createArticle() {
+        vDialog = getLayoutInflater().inflate(R.layout.add_article_dialog, null);
+        ad_add_Article = new AlertDialog.Builder(this)
+                .setMessage("Neuen Artikel für " + spinner.getSelectedItem() + " anlegen:")
+                .setView(vDialog)
+                .setPositiveButton("Anlegen", ( dialog, which) -> {
+                    EditText e = vDialog.findViewById(R.id.article_name);
+                    EditText n = vDialog.findViewById(R.id.amount);
+                    List<Article> list = shoppingList.get(spinner.getSelectedItem());
+                    list.add(new Article((list.size()+1), e.getText().toString(), Float.parseFloat(n.getText().toString())));
+                    listAdapter.clear();
+                    listAdapter.addAll(shoppingList.get(spinner.getSelectedItem()));
+                })
+                .setNegativeButton("Beenden", null)
+                .show();
+    }
+
+    private void createShop() {
+        final EditText edit = new EditText(this);
+        ad_add_Shop = new AlertDialog.Builder(this)
+                .setMessage("Neuen Shop anlegen:")
+                .setView(edit)
+                .setPositiveButton("Anlegen", ( dialog, which) -> {
+                    shoppingList.put(edit.getText().toString(), new LinkedList<Article>());
+                    spinnerAdapter.clear();
+                    spinnerAdapter.addAll(shoppingList.keySet());
+                })
+                .setNegativeButton("Beenden", null)
+                .show();
+
     }
 
     private void writeJSON() {
@@ -149,7 +215,7 @@ public class MainActivity extends AppCompatActivity {
         String fullPath = path + File.separator + FILENAME;
         try {
             PrintWriter out = new PrintWriter(
-                            new FileOutputStream(fullPath));
+                    new FileOutputStream(fullPath));
             out.print(txtInput);
             out.flush();
             out.close();
