@@ -9,7 +9,8 @@
     <item
         android:id="@+id/menu_new_shop"
         android:title="Neues Geschaeft hinzufügen"
-        app:showAsAction="never"
+        app:showAsAction="always"
+        android:icon="@android:drawable/ic_menu_add"
         />
     <item
         android:id="@+id/menu_save"

@@ -7,6 +7,7 @@ import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.ContextMenu;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -23,7 +24,9 @@ import com.google.gson.reflect.TypeToken;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
@@ -59,9 +62,10 @@ public class MainActivity extends AppCompatActivity {
 
         spinner = findViewById(R.id.spinner);
         listView = findViewById(R.id.listView);
+        registerForContextMenu(listView);
 
-        spinnerAdapter  = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item);
-        listAdapter =  new ArrayAdapter<>(this, android.R.layout.simple_list_item_1);
+        spinnerAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item);
+        listAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1);
 
         if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -69,6 +73,7 @@ public class MainActivity extends AppCompatActivity {
         } else {
             readJSON();
         }
+
 
         bindAdapterToListView();
         initSpinner();
@@ -101,11 +106,13 @@ public class MainActivity extends AppCompatActivity {
         String state = Environment.getExternalStorageState();
         if (!state.equals(Environment.MEDIA_MOUNTED)) return;
         File outFile = Environment.getExternalStorageDirectory();
-        String path = outFile.getAbsolutePath();
-        String fullPath = path + File.separator + FILENAME;
+        /*String path = outFile.getAbsolutePath();
+        String fullPath = path + FILENAME;*/
+        File f = new File(outFile, FILENAME);
         try {
-            FileInputStream fis = openFileInput(FILENAME);
-            BufferedReader in = new BufferedReader(new InputStreamReader(fis));
+            //FileInputStream fis = openFileInput(FILENAME);
+            //BufferedReader in = new BufferedReader(new InputStreamReader(fis));
+            BufferedReader in = new BufferedReader(new FileReader(f));
             Gson gson = new Gson();
             shoppingList = gson.fromJson(in, token.getType());
 
@@ -113,6 +120,19 @@ public class MainActivity extends AppCompatActivity {
         } catch (IOException exp) {
             Log.d("TAG", exp.getStackTrace().toString());
         }
+
+        /*try {
+            FileInputStream fis = openFileInput(fullPath);
+            BufferedReader in = new BufferedReader(new InputStreamReader(fis));
+            Gson gson = new Gson();
+            shoppingList = gson.fromJson(in, token.getType());
+            in.close();
+        } catch(IOException exp) {
+            Log.d("TAG", exp.getStackTrace().toString());
+        }*/
+
+        spinnerAdapter.clear();
+        spinnerAdapter.addAll(shoppingList.keySet());
 
     }
 
@@ -139,9 +159,42 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    public void onCreateContextMenu(ContextMenu menu, View v,
+                                    ContextMenu.ContextMenuInfo menuInfo) {
+        int viewId = v.getId();
+        if (viewId == R.id.listView) {
+            getMenuInflater().inflate(R.menu.context_menu, menu);
+        }
+        super.onCreateContextMenu(menu, v, menuInfo);
+    }
+
+    @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         getMenuInflater().inflate(R.menu.options_menu, menu);
         return super.onCreateOptionsMenu(menu);
+    }
+
+    @Override
+    public boolean onContextItemSelected(MenuItem item) {
+        if (item.getItemId() == R.id.menu_delete) {
+            AdapterView.AdapterContextMenuInfo info =
+                    (AdapterView.AdapterContextMenuInfo) item.getMenuInfo();
+            String name = "";
+            if (info != null){
+                int pos = info.position;
+
+                List<Article> list = shoppingList.get(spinner.getSelectedItem());
+
+                list.remove(listView.getAdapter().getItem(pos));
+                listAdapter.clear();
+                listAdapter.addAll(list);
+            }
+
+
+            return true;
+        }
+
+        return super.onContextItemSelected(item);
     }
 
     @Override
@@ -156,12 +209,9 @@ public class MainActivity extends AppCompatActivity {
                 break;
 
             case R.id.menu_save:
-                if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                        != PackageManager.PERMISSION_GRANTED) {
-                    requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, RQ_write);
-                } else {
-                    writeJSON();
-                }
+
+                writeJSON();
+
                 break;
         }
         return super.onOptionsItemSelected(item);
@@ -172,11 +222,11 @@ public class MainActivity extends AppCompatActivity {
         ad_add_Article = new AlertDialog.Builder(this)
                 .setMessage("Neuen Artikel für " + spinner.getSelectedItem() + " anlegen:")
                 .setView(vDialog)
-                .setPositiveButton("Anlegen", ( dialog, which) -> {
+                .setPositiveButton("Anlegen", (dialog, which) -> {
                     EditText e = vDialog.findViewById(R.id.article_name);
                     EditText n = vDialog.findViewById(R.id.amount);
                     List<Article> list = shoppingList.get(spinner.getSelectedItem());
-                    list.add(new Article((list.size()+1), e.getText().toString(), Float.parseFloat(n.getText().toString())));
+                    list.add(new Article((list.size() + 1), e.getText().toString(), Float.parseFloat(n.getText().toString())));
                     listAdapter.clear();
                     listAdapter.addAll(shoppingList.get(spinner.getSelectedItem()));
                 })
@@ -189,7 +239,7 @@ public class MainActivity extends AppCompatActivity {
         ad_add_Shop = new AlertDialog.Builder(this)
                 .setMessage("Neuen Shop anlegen:")
                 .setView(edit)
-                .setPositiveButton("Anlegen", ( dialog, which) -> {
+                .setPositiveButton("Anlegen", (dialog, which) -> {
                     shoppingList.put(edit.getText().toString(), new LinkedList<Article>());
                     spinnerAdapter.clear();
                     spinnerAdapter.addAll(shoppingList.keySet());
@@ -207,21 +257,36 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void writeToFile(String txtInput) {
+        if (checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, RQ_write);
+        } else {
+            String state = Environment.getExternalStorageState();
+            if (!state.equals(Environment.MEDIA_MOUNTED)) return;
+            File outFile = Environment.getExternalStorageDirectory();
+            String path = outFile.getAbsolutePath();
+            String fullPath = path + File.separator + FILENAME;
+            try {
+                PrintWriter out = new PrintWriter(
+                        new OutputStreamWriter(
+                                new FileOutputStream(fullPath)));
+                out.println(txtInput);
+                out.flush();
+                out.close();
+            } catch (Exception e) {
+                Log.e("TAG", e.getLocalizedMessage());
+            }
+        }
 
-        String state = Environment.getExternalStorageState();
-        if (!state.equals(Environment.MEDIA_MOUNTED)) return;
-        File outFile = Environment.getExternalStorageDirectory();
-        String path = outFile.getAbsolutePath();
-        String fullPath = path + File.separator + FILENAME;
-        try {
-            PrintWriter out = new PrintWriter(
-                    new FileOutputStream(fullPath));
-            out.print(txtInput);
+        /*try {
+            FileOutputStream fos = openFileOutput(FILENAME, MODE_PRIVATE);
+            PrintWriter out = new PrintWriter(new OutputStreamWriter(fos));
+            out.println(txtInput);
             out.flush();
             out.close();
-        } catch (Exception e) {
-            Log.e("TAG", e.getLocalizedMessage());
-        }
+        } catch (FileNotFoundException exp) {
+            Log.d("TAG", exp.getStackTrace().toString());
+        }*/
     }
 
 
