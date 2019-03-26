@@ -2,10 +2,14 @@ package com.example.mseifriedsberger16.shoppinglist;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
+import android.location.Location;
+import android.location.LocationManager;
 import android.os.Environment;
+import android.support.v4.app.ActivityCompat;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
+import android.text.InputType;
 import android.util.Log;
 import android.view.ContextMenu;
 import android.view.Menu;
@@ -14,6 +18,7 @@ import android.view.View;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.EditText;
+import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.NumberPicker;
 import android.widget.Spinner;
@@ -32,28 +37,35 @@ import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Spliterator;
 
+import static java.util.stream.Collectors.toList;
+
 public class MainActivity extends AppCompatActivity {
     private static final String FILENAME = "shoppingList.json";
+    private static final int RQ_ACCESS_FINE_LOCATION = 3;
     private Spinner spinner;
     private int RQ_read = 1;
     private int RQ_write = 2;
     private ListView listView;
-    private TypeToken<Map<String, List<Article>>> token = new TypeToken<Map<String, List<Article>>>() {
+    private TypeToken<Map<Shop, List<Article>>> token = new TypeToken<Map<Shop, List<Article>>>() {
     };
 
-    private Map<String, List<Article>> shoppingList = new HashMap<>();
+    private Map<Shop, List<Article>> shoppingList = new HashMap<>();
 
-    private ArrayAdapter<String> spinnerAdapter;
+    private ArrayAdapter spinnerAdapter;
     private ArrayAdapter<Article> listAdapter;
     private AlertDialog ad_add_Article;
     private AlertDialog ad_add_Shop;
     private View vDialog;
+
+    private LocationManager locationManager;
+    private boolean isGPSAllowed = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -63,8 +75,10 @@ public class MainActivity extends AppCompatActivity {
         spinner = findViewById(R.id.spinner);
         listView = findViewById(R.id.listView);
         registerForContextMenu(listView);
+        registerSystemService();
 
         spinnerAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item);
+
         listAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1);
 
         if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
@@ -72,6 +86,12 @@ public class MainActivity extends AppCompatActivity {
             requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, RQ_read);
         } else {
             readJSON();
+        }
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, RQ_ACCESS_FINE_LOCATION);
+        } else {
+            isGPSAllowed = true;
         }
 
 
@@ -82,15 +102,47 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-                String shop = spinner.getSelectedItem().toString();
-                listAdapter.clear();
-                listAdapter.addAll(shoppingList.get(shop));
+                String shopName = spinner.getSelectedItem().toString();
+                Shop shop = null;
+
+                for (Shop s : shoppingList.keySet()) {
+
+                    if(s.getName().equals(shopName)){
+                        shop = s;
+                    }
+                }
+
+                if(shop != null) {
+                    listAdapter.clear();
+                    listAdapter.addAll(shoppingList.get(shop));
+                }
             }
 
             @Override
             public void onNothingSelected(AdapterView<?> adapterView) {
             }
         });
+
+
+    }
+
+    private void registerSystemService() {
+        locationManager = (LocationManager) getSystemService(LOCATION_SERVICE);
+        // from Api 23 and above you can call getSystemService this way:
+        // locationManager = (LocationManager) getSystemService(LocationManager.class);
+    }
+
+    private void checkPermissionGPS() {
+        Log.d("TAG", "checkPermissionGPS");
+        String permission = Manifest.permission.ACCESS_FINE_LOCATION;
+        if (ActivityCompat.checkSelfPermission(this, permission)
+                != PackageManager.PERMISSION_GRANTED) {
+            ActivityCompat.requestPermissions(this,
+                    new String[]{permission},
+                    RQ_ACCESS_FINE_LOCATION);
+        } else {
+            isGPSAllowed = true;
+        }
     }
 
     private void initSpinner() {
@@ -132,7 +184,7 @@ public class MainActivity extends AppCompatActivity {
         }*/
 
         spinnerAdapter.clear();
-        spinnerAdapter.addAll(shoppingList.keySet());
+        spinnerAdapter.addAll(new ArrayList(shoppingList.keySet()));
 
     }
 
@@ -154,6 +206,12 @@ public class MainActivity extends AppCompatActivity {
                 //user does not allow
             } else {
                 writeJSON();
+            }
+        } else if (requestCode == RQ_ACCESS_FINE_LOCATION) {
+            if (grantResults.length > 0 && grantResults[0] != PackageManager.PERMISSION_GRANTED) {
+                //user does not allow
+            } else {
+                isGPSAllowed = true;
             }
         }
     }
@@ -180,7 +238,7 @@ public class MainActivity extends AppCompatActivity {
             AdapterView.AdapterContextMenuInfo info =
                     (AdapterView.AdapterContextMenuInfo) item.getMenuInfo();
             String name = "";
-            if (info != null){
+            if (info != null) {
                 int pos = info.position;
 
                 List<Article> list = shoppingList.get(spinner.getSelectedItem());
@@ -220,7 +278,7 @@ public class MainActivity extends AppCompatActivity {
     private void createArticle() {
         vDialog = getLayoutInflater().inflate(R.layout.add_article_dialog, null);
         ad_add_Article = new AlertDialog.Builder(this)
-                .setMessage("Neuen Artikel für " + spinner.getSelectedItem() + " anlegen:")
+                .setMessage("Neuen Artikel für " + spinner.getSelectedItem().toString() + " anlegen:")
                 .setView(vDialog)
                 .setPositiveButton("Anlegen", (dialog, which) -> {
                     EditText e = vDialog.findViewById(R.id.article_name);
@@ -235,23 +293,83 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void createShop() {
-        final EditText edit = new EditText(this);
-        ad_add_Shop = new AlertDialog.Builder(this)
-                .setMessage("Neuen Shop anlegen:")
-                .setView(edit)
+
+        LinearLayout ll = new LinearLayout(this);
+        ll.setOrientation(LinearLayout.VERTICAL);
+        EditText latitude = new EditText(this);
+        latitude.setHint("Breitengrad");
+        latitude.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        ll.addView(latitude);
+        EditText longitude = new EditText(this);
+        longitude.setHint("Längengrad");
+        longitude.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        ll.addView(longitude);
+        EditText name = new EditText(this);
+        name.setHint("Shopname");
+        ll.addView(name);
+
+
+        new AlertDialog.Builder(this)
+                .setMessage("Neuen Shop anlegen")
+                .setView(ll)
+                .setNeutralButton("Aktuelle Koordinaten übernehmen", ((dialog, which) -> {
+                    if (isGPSAllowed) {
+                        //checkPermissionGPS();
+                        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                       }
+                        Location location = locationManager.getLastKnownLocation(
+                                LocationManager.GPS_PROVIDER);
+
+                        //latitude.setText(String.valueOf(location.getLatitude()));
+                        //longitude.setText(String.valueOf(location.getLongitude()));
+
+
+                        String shopName = name.getText().toString();
+                        Double lat = Double.parseDouble(String.valueOf(location.getLatitude()));
+                        Double longi = Double.parseDouble(String.valueOf(location.getLongitude()));
+                        Shop s = new Shop(shopName, lat, longi);
+                        shoppingList.put(s, new LinkedList<>());
+                        spinnerAdapter.clear();
+                        spinnerAdapter.addAll(shoppingList.keySet());
+                    }
+
+
+                }))
                 .setPositiveButton("Anlegen", (dialog, which) -> {
-                    shoppingList.put(edit.getText().toString(), new LinkedList<Article>());
+                    String shopName = name.getText().toString();
+                    Double lat = Double.parseDouble(latitude.getText().toString());
+                    Double longi = Double.parseDouble(longitude.getText().toString());
+                    Shop s = new Shop(shopName, lat, longi);
+                    shoppingList.put(s, new LinkedList<>());
                     spinnerAdapter.clear();
+                    //ArrayList<Shop> shopList = new ArrayList<>();
+                    //shopList.addAll(shoppingList.keySet());
+
                     spinnerAdapter.addAll(shoppingList.keySet());
                 })
                 .setNegativeButton("Beenden", null)
                 .show();
 
+
+        /*final EditText edit = new EditText(this);
+        ad_add_Shop = new AlertDialog.Builder(this)
+                .setMessage("Neuen Shop anlegen:")
+                .setView(edit)
+                .setPositiveButton("Anlegen", (dialog, which) -> {
+                    String shopName = edit.getText().toString();
+                    shoppingList.put(, new LinkedList<Article>());
+                    spinnerAdapter.clear();
+                    spinnerAdapter.addAll(shoppingList.keySet());
+                })
+                .setNegativeButton("Beenden", null)
+                .show();*/
+
     }
 
     private void writeJSON() {
         Gson gson = new Gson();
-        String sJson = gson.toJson(shoppingList);
+
+        String sJson = gson.toJson(shoppingList, token.getType());
         writeToFile(sJson);
 
     }
