@@ -17,4 +17,9 @@
         android:title="Speichern"
         app:showAsAction="never"
         />
+    <item
+        android:id="@+id/menu_preferences"
+        android:title="Preferences"
+        app:showAsAction="always"
+        android:icon="@android:drawable/ic_menu_preferences"/>
 </menu>

@@ -7,12 +7,14 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Build;
 import android.os.Environment;
+import android.preference.PreferenceManager;
 import android.support.v4.app.ActivityCompat;
 import android.support.v4.app.NotificationCompat;
 import android.support.v4.app.NotificationManagerCompat;
@@ -61,11 +63,13 @@ public class MainActivity extends AppCompatActivity {
     private static final String FILENAME = "shoppingList.json";
     private static final int RQ_ACCESS_FINE_LOCATION = 3;
     private static final String CHANNEL_ID = "12345";
+    private static final int RQ_PREFERENCES = 324;
     private Spinner spinner;
     private int RQ_read = 1;
     private int RQ_write = 2;
     private ListView listView;
     private Context ctx = this;
+    private SharedPreferences prefs;
     private TypeToken<Map<Shop, List<Article>>> token = new TypeToken<Map<Shop, List<Article>>>() {
     };
 
@@ -79,15 +83,18 @@ public class MainActivity extends AppCompatActivity {
 
     private LocationManager locationManager;
     private boolean isGPSAllowed = false;
+    private boolean isNotiAllowed = false;
     private LocationListener locationListener;
     private int notificationId = 5000;
+    private SharedPreferences.OnSharedPreferenceChangeListener prefChangeListener;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
-
+        prefs = PreferenceManager.getDefaultSharedPreferences(ctx);
+        prefChangeListener = (sharedPrefs, key) -> preferenceChanged(sharedPrefs, key);
         spinner = findViewById(R.id.spinner);
         listView = findViewById(R.id.listView);
         registerForContextMenu(listView);
@@ -138,71 +145,82 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        locationListener = new LocationListener() {
-            @Override
-            public void onLocationChanged(Location location) {
-                Log.d("TAG", "onLocationChanged");
-                if(shoppingList.size() > 0) {
-                    for (Shop s : shoppingList.keySet()) {
-                        Location l = new Location("destination");
-                        l.setLatitude(s.getLat());
-                        l.setLongitude(s.getLongi());
 
-                        float distance = location.distanceTo(l);
+            locationListener = new LocationListener() {
+                @Override
+                public void onLocationChanged(Location location) {
+                    Log.d("TAG", "onLocationChanged");
+                    if (shoppingList.size() > 0) {
+                        isNotiAllowed = prefs.getBoolean("noti", false);
 
-                        if(distance <= 1000f){
-                            List<Article> articles = shoppingList.get(spinner.getSelectedItem());
+                        if (isNotiAllowed) {
+                            for (Shop s : shoppingList.keySet()) {
+                                Location l = new Location("destination");
+                                l.setLatitude(s.getLat());
+                                l.setLongitude(s.getLongi());
 
-                            StringBuilder sbuilder = new StringBuilder();
-                            for (Article a :
-                                    articles) {
-                                sbuilder.append(a.toString() + "\n\r");
+                                float distance = location.distanceTo(l);
+
+                                if (distance <= 1000f) {
+                                    List<Article> articles = shoppingList.get(spinner.getSelectedItem());
+
+                                    StringBuilder sbuilder = new StringBuilder();
+                                    for (Article a :
+                                            articles) {
+                                        sbuilder.append(a.toString() + "\n\r");
+                                    }
+
+                                    // Create an explicit intent for an Activity in your app
+                                    Intent intent = new Intent(ctx, MainActivity.class);
+                                    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                                    PendingIntent pendingIntent = PendingIntent.getActivity(ctx, 0, intent, 0);
+
+                                    NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, CHANNEL_ID)
+                                            .setSmallIcon(R.drawable.ic_launcher_foreground)
+                                            .setContentTitle("Einkaufsliste für nahegelegenen " + s.getName())
+                                            .setContentText(sbuilder.toString())
+                                            .setStyle(new NotificationCompat.BigTextStyle()
+                                                    .bigText(sbuilder.toString()))
+                                            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                                            // Set the intent that will fire when the user taps the notification
+                                            .setContentIntent(pendingIntent)
+                                            .setAutoCancel(true);
+
+                                    createNotificationChannel();
+                                    NotificationManagerCompat notificationManager = NotificationManagerCompat.from(ctx);
+
+                                    // notificationId is a unique int for each notification that you must define
+                                    notificationManager.notify(notificationId, builder.build());
+
+                                }
+
                             }
-
-                            // Create an explicit intent for an Activity in your app
-                            Intent intent = new Intent(ctx, MainActivity.class);
-                            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                            PendingIntent pendingIntent = PendingIntent.getActivity(ctx, 0, intent, 0);
-
-                            NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, CHANNEL_ID)
-                                    .setSmallIcon(R.drawable.ic_launcher_foreground)
-                                    .setContentTitle("Einkaufsliste für nahegelegenen " + s.getName())
-                                    .setContentText(sbuilder.toString())
-                                    .setStyle(new NotificationCompat.BigTextStyle()
-                                            .bigText(sbuilder.toString()))
-                                    .setPriority(NotificationCompat.PRIORITY_DEFAULT)
-                                    // Set the intent that will fire when the user taps the notification
-                                    .setContentIntent(pendingIntent)
-                                    .setAutoCancel(true);
-
-                            createNotificationChannel();
-                            NotificationManagerCompat notificationManager = NotificationManagerCompat.from(ctx);
-
-                            // notificationId is a unique int for each notification that you must define
-                            notificationManager.notify(notificationId, builder.build());
-
                         }
-
                     }
                 }
-            }
 
-            @Override
-            public void onStatusChanged(String provider, int status, Bundle extras) {
-                Log.d("TAG", "onStatusChanged");
-            }
+                @Override
+                public void onStatusChanged(String provider, int status, Bundle extras) {
+                    Log.d("TAG", "onStatusChanged");
+                }
 
-            @Override
-            public void onProviderEnabled(String provider) {
-                Log.d("TAG", "onProviderEnabled");
-            }
+                @Override
+                public void onProviderEnabled(String provider) {
+                    Log.d("TAG", "onProviderEnabled");
+                }
 
-            @Override
-            public void onProviderDisabled(String provider) {
-                Log.d("TAG", "onProviderDisabled");
-            }
-        };
+                @Override
+                public void onProviderDisabled(String provider) {
+                    Log.d("TAG", "onProviderDisabled");
+                }
+            };
+        }
+
+
+    private void preferenceChanged(SharedPreferences sharedPrefs, String key) {
+        isNotiAllowed = sharedPrefs.getBoolean(key, false);
     }
+
 
     private void createNotificationChannel() {
         // Create the NotificationChannel, but only on API 26+ because
@@ -400,6 +418,11 @@ public class MainActivity extends AppCompatActivity {
 
                 writeJSON();
 
+                break;
+
+            case R.id.menu_preferences:
+                Intent intent = new Intent(ctx, MySettingsActivity.class);
+                startActivityForResult(intent, RQ_PREFERENCES);
                 break;
         }
         return super.onOptionsItemSelected(item);
