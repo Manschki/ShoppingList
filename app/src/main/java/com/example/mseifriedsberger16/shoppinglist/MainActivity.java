@@ -1,11 +1,21 @@
 package com.example.mseifriedsberger16.shoppinglist;
 
 import android.Manifest;
+import android.app.Notification;
+import android.app.NotificationChannel;
+import android.app.NotificationManager;
+import android.app.PendingIntent;
+import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.location.Location;
+import android.location.LocationListener;
 import android.location.LocationManager;
+import android.os.Build;
 import android.os.Environment;
 import android.support.v4.app.ActivityCompat;
+import android.support.v4.app.NotificationCompat;
+import android.support.v4.app.NotificationManagerCompat;
 import android.support.v7.app.AlertDialog;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
@@ -22,6 +32,7 @@ import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.NumberPicker;
 import android.widget.Spinner;
+import android.widget.Toast;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -49,16 +60,18 @@ import static java.util.stream.Collectors.toList;
 public class MainActivity extends AppCompatActivity {
     private static final String FILENAME = "shoppingList.json";
     private static final int RQ_ACCESS_FINE_LOCATION = 3;
+    private static final String CHANNEL_ID = "12345";
     private Spinner spinner;
     private int RQ_read = 1;
     private int RQ_write = 2;
     private ListView listView;
+    private Context ctx = this;
     private TypeToken<Map<Shop, List<Article>>> token = new TypeToken<Map<Shop, List<Article>>>() {
     };
 
     private Map<Shop, List<Article>> shoppingList = new HashMap<>();
 
-    private ArrayAdapter spinnerAdapter;
+    private MyAdapter spinnerAdapter;
     private ArrayAdapter<Article> listAdapter;
     private AlertDialog ad_add_Article;
     private AlertDialog ad_add_Shop;
@@ -66,20 +79,31 @@ public class MainActivity extends AppCompatActivity {
 
     private LocationManager locationManager;
     private boolean isGPSAllowed = false;
+    private LocationListener locationListener;
+    private int notificationId = 5000;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+
         spinner = findViewById(R.id.spinner);
         listView = findViewById(R.id.listView);
         registerForContextMenu(listView);
         registerSystemService();
 
-        spinnerAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item);
-
+        spinnerAdapter = new MyAdapter(this, R.layout.mylayout, new LinkedList(shoppingList.keySet()));
         listAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1);
+        bindAdapterToListView();
+        initSpinner();
+
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, RQ_ACCESS_FINE_LOCATION);
+        } else {
+            gpsGranted();
+        }
 
         if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
                 != PackageManager.PERMISSION_GRANTED) {
@@ -87,16 +111,7 @@ public class MainActivity extends AppCompatActivity {
         } else {
             readJSON();
         }
-        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)
-                != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, RQ_ACCESS_FINE_LOCATION);
-        } else {
-            isGPSAllowed = true;
-        }
 
-
-        bindAdapterToListView();
-        initSpinner();
 
         spinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
 
@@ -107,12 +122,12 @@ public class MainActivity extends AppCompatActivity {
 
                 for (Shop s : shoppingList.keySet()) {
 
-                    if(s.getName().equals(shopName)){
+                    if (s.getName().equals(shopName)) {
                         shop = s;
                     }
                 }
 
-                if(shop != null) {
+                if (shop != null) {
                     listAdapter.clear();
                     listAdapter.addAll(shoppingList.get(shop));
                 }
@@ -123,7 +138,110 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        locationListener = new LocationListener() {
+            @Override
+            public void onLocationChanged(Location location) {
+                Log.d("TAG", "onLocationChanged");
+                if(shoppingList.size() > 0) {
+                    for (Shop s : shoppingList.keySet()) {
+                        Location l = new Location("destination");
+                        l.setLatitude(s.getLat());
+                        l.setLongitude(s.getLongi());
 
+                        float distance = location.distanceTo(l);
+
+                        if(distance <= 1000f){
+                            List<Article> articles = shoppingList.get(spinner.getSelectedItem());
+
+                            StringBuilder sbuilder = new StringBuilder();
+                            for (Article a :
+                                    articles) {
+                                sbuilder.append(a.toString() + "\n\r");
+                            }
+
+                            // Create an explicit intent for an Activity in your app
+                            Intent intent = new Intent(ctx, MainActivity.class);
+                            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                            PendingIntent pendingIntent = PendingIntent.getActivity(ctx, 0, intent, 0);
+
+                            NotificationCompat.Builder builder = new NotificationCompat.Builder(ctx, CHANNEL_ID)
+                                    .setSmallIcon(R.drawable.ic_launcher_foreground)
+                                    .setContentTitle("Einkaufsliste für nahegelegenen " + s.getName())
+                                    .setContentText(sbuilder.toString())
+                                    .setStyle(new NotificationCompat.BigTextStyle()
+                                            .bigText(sbuilder.toString()))
+                                    .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                                    // Set the intent that will fire when the user taps the notification
+                                    .setContentIntent(pendingIntent)
+                                    .setAutoCancel(true);
+
+                            createNotificationChannel();
+                            NotificationManagerCompat notificationManager = NotificationManagerCompat.from(ctx);
+
+                            // notificationId is a unique int for each notification that you must define
+                            notificationManager.notify(notificationId, builder.build());
+
+                        }
+
+                    }
+                }
+            }
+
+            @Override
+            public void onStatusChanged(String provider, int status, Bundle extras) {
+                Log.d("TAG", "onStatusChanged");
+            }
+
+            @Override
+            public void onProviderEnabled(String provider) {
+                Log.d("TAG", "onProviderEnabled");
+            }
+
+            @Override
+            public void onProviderDisabled(String provider) {
+                Log.d("TAG", "onProviderDisabled");
+            }
+        };
+    }
+
+    private void createNotificationChannel() {
+        // Create the NotificationChannel, but only on API 26+ because
+        // the NotificationChannel class is new and not in the support library
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            String name = "Channel Name";
+            String description = "Description";
+            int importance = NotificationManager.IMPORTANCE_DEFAULT;
+            NotificationChannel channel = new NotificationChannel(CHANNEL_ID, name, importance);
+            channel.setDescription(description);
+            // Register the channel with the system; you can't change the importance
+            // or other notification behaviors after this
+            NotificationManager notificationManager = getSystemService(NotificationManager.class);
+            notificationManager.createNotificationChannel(channel);
+        }
+    }
+
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        Log.d("TAG", "onResume");
+        super.onPostResume();
+        if (isGPSAllowed) {
+            if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            }
+            locationManager.requestLocationUpdates(
+                    LocationManager.GPS_PROVIDER,
+                    3000,
+                    1,
+                    locationListener);
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        Log.d("TAG", "onPause");
+        super.onPause();
+        if (isGPSAllowed) locationManager.removeUpdates(locationListener);
     }
 
     private void registerSystemService() {
@@ -141,8 +259,17 @@ public class MainActivity extends AppCompatActivity {
                     new String[]{permission},
                     RQ_ACCESS_FINE_LOCATION);
         } else {
-            isGPSAllowed = true;
+            //isGPSAllowed = true;
+            gpsGranted();
         }
+
+    }
+
+    private void gpsGranted() {
+        Log.d("TAG", "gps permission granted!");
+        isGPSAllowed = true;
+        //showAvailableProviders();
+
     }
 
     private void initSpinner() {
@@ -155,11 +282,12 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void readJSON() {
+        /*
         String state = Environment.getExternalStorageState();
         if (!state.equals(Environment.MEDIA_MOUNTED)) return;
         File outFile = Environment.getExternalStorageDirectory();
-        /*String path = outFile.getAbsolutePath();
-        String fullPath = path + FILENAME;*/
+        //String path = outFile.getAbsolutePath();
+        //String fullPath = path + FILENAME;
         File f = new File(outFile, FILENAME);
         try {
             //FileInputStream fis = openFileInput(FILENAME);
@@ -173,18 +301,20 @@ public class MainActivity extends AppCompatActivity {
             Log.d("TAG", exp.getStackTrace().toString());
         }
 
-        /*try {
-            FileInputStream fis = openFileInput(fullPath);
-            BufferedReader in = new BufferedReader(new InputStreamReader(fis));
-            Gson gson = new Gson();
-            shoppingList = gson.fromJson(in, token.getType());
-            in.close();
-        } catch(IOException exp) {
-            Log.d("TAG", exp.getStackTrace().toString());
-        }*/
+        //try {
+        //    FileInputStream fis = openFileInput(fullPath);
+          //  BufferedReader in = new BufferedReader(new InputStreamReader(fis));
+            //Gson gson = new Gson();
+            //shoppingList = gson.fromJson(in, token.getType());
+            //in.close();
+        //} catch(IOException exp) {
+        //    Log.d("TAG", exp.getStackTrace().toString());
+        //}
 
-        spinnerAdapter.clear();
-        spinnerAdapter.addAll(new ArrayList(shoppingList.keySet()));
+        spinnerAdapter = new MyAdapter(this, R.layout.mylayout, new LinkedList(shoppingList.keySet()));
+        initSpinner();
+        spinnerAdapter.notifyDataSetChanged();
+        */
 
     }
 
@@ -211,7 +341,7 @@ public class MainActivity extends AppCompatActivity {
             if (grantResults.length > 0 && grantResults[0] != PackageManager.PERMISSION_GRANTED) {
                 //user does not allow
             } else {
-                isGPSAllowed = true;
+                gpsGranted();
             }
         }
     }
@@ -278,7 +408,7 @@ public class MainActivity extends AppCompatActivity {
     private void createArticle() {
         vDialog = getLayoutInflater().inflate(R.layout.add_article_dialog, null);
         ad_add_Article = new AlertDialog.Builder(this)
-                .setMessage("Neuen Artikel für " + spinner.getSelectedItem().toString() + " anlegen:")
+                .setMessage("Neuen Artikel für " + ((Shop)spinner.getSelectedItem()).getName() + " anlegen:")
                 .setView(vDialog)
                 .setPositiveButton("Anlegen", (dialog, which) -> {
                     EditText e = vDialog.findViewById(R.id.article_name);
@@ -313,8 +443,11 @@ public class MainActivity extends AppCompatActivity {
                 .setMessage("Neuen Shop anlegen")
                 .setView(ll)
                 .setNeutralButton("Aktuelle Koordinaten übernehmen", ((dialog, which) -> {
-                    if (isGPSAllowed) {
-                        //checkPermissionGPS();
+                    if (!isGPSAllowed){
+                        checkPermissionGPS();
+                    }
+                    else{
+
                         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
                        }
                         Location location = locationManager.getLastKnownLocation(
@@ -329,8 +462,12 @@ public class MainActivity extends AppCompatActivity {
                         Double longi = Double.parseDouble(String.valueOf(location.getLongitude()));
                         Shop s = new Shop(shopName, lat, longi);
                         shoppingList.put(s, new LinkedList<>());
-                        spinnerAdapter.clear();
-                        spinnerAdapter.addAll(shoppingList.keySet());
+
+                        List l = new LinkedList(shoppingList.keySet());
+
+                        spinnerAdapter = new MyAdapter(this, R.layout.mylayout, l);
+                        initSpinner();
+                        spinnerAdapter.notifyDataSetChanged();
                     }
 
 
@@ -341,11 +478,13 @@ public class MainActivity extends AppCompatActivity {
                     Double longi = Double.parseDouble(longitude.getText().toString());
                     Shop s = new Shop(shopName, lat, longi);
                     shoppingList.put(s, new LinkedList<>());
-                    spinnerAdapter.clear();
+
                     //ArrayList<Shop> shopList = new ArrayList<>();
                     //shopList.addAll(shoppingList.keySet());
 
-                    spinnerAdapter.addAll(shoppingList.keySet());
+                    spinnerAdapter = new MyAdapter(this, R.layout.mylayout, new LinkedList(shoppingList.keySet()));
+                    initSpinner();
+                    spinnerAdapter.notifyDataSetChanged();
                 })
                 .setNegativeButton("Beenden", null)
                 .show();

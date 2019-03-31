@@ -43,7 +43,10 @@ public class Shop implements Serializable{
 
     @Override
     public String toString() {
-        //eigenen Adapter für Spinner zum schreiben
-        return name;
+        return "Shop{" +
+                "name='" + name + '\'' +
+                ", lat=" + lat +
+                ", longi=" + longi +
+                '}';
     }
 }
